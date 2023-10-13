@@ -9,7 +9,7 @@ interface Props {
 export function DefaultLayout({ children }: Props) {
   return (
     <>
-      <MainHeader />
+      {/* <MainHeader /> */}
       {children}
     </>
   );
