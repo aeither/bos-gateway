@@ -1,0 +1,226 @@
+let greeting = `Have a great day ${props.name}.`;
+State.init({
+  img: null,
+  strEther: 0,
+});
+
+// Force user to connect to Base to show UI
+if (
+  state.chainId === undefined &&
+  ethers !== undefined &&
+  Ethers.send("eth_requestAccounts", [])[0]
+) {
+  Ethers.provider()
+    .getNetwork()
+    .then((chainIdData) => {
+      if (chainIdData?.chainId) {
+        State.update({ chainId: chainIdData.chainId });
+      }
+    });
+}
+if (state.chainId !== undefined && state.chainId !== 1) {
+  return <p>Switch to Base Mainnet</p>;
+}
+// if (state.chainId !== undefined && state.chainId !== 8453) {
+//   return <p>Switch to Base Mainnet</p>;
+// }
+
+// FETCH LIDO ABI
+
+const lidoContract = "0xae7ab96520de3a18e5e111b5eaab095312d7fe84";
+const tokenDecimals = 18;
+
+const lidoAbi = fetch(
+  "https://raw.githubusercontent.com/lidofinance/lido-subgraph/master/abis/Lido.json"
+);
+if (!lidoAbi.ok) {
+  return "Loading";
+}
+
+const iface = new ethers.utils.Interface(lidoAbi.body);
+
+// HELPER FUNCTIONS
+
+const getStakedBalance = (receiver) => {
+  const encodedData = iface.encodeFunctionData("balanceOf", [receiver]);
+
+  return Ethers.provider()
+    .call({
+      to: lidoContract,
+      data: encodedData,
+    })
+    .then((rawBalance) => {
+      const receiverBalanceHex = iface.decodeFunctionResult(
+        "balanceOf",
+        rawBalance
+      );
+
+      return Big(receiverBalanceHex.toString())
+        .div(Big(10).pow(tokenDecimals))
+        .toFixed(2)
+        .replace(/\d(?=(\d{3})+\.)/g, "$&,");
+    });
+};
+
+const submitEthers = (strEther, _referral) => {
+  if (!strEther) {
+    return console.log("Amount is missing");
+  }
+
+  const erc20 = new ethers.Contract(
+    lidoContract,
+    lidoAbi.body,
+    Ethers.provider().getSigner()
+  );
+  console.log("erc20", erc20);
+
+  let amount = ethers.utils.parseUnits(strEther, tokenDecimals).toHexString();
+  console.log("amount", amount);
+
+  erc20.submit(lidoContract, { value: amount }).then((transactionHash) => {
+    console.log("transactionHash is " + transactionHash);
+  });
+};
+
+// DETECT SENDER
+
+if (state.sender === undefined) {
+  const accounts = Ethers.send("eth_requestAccounts", []);
+  if (accounts.length) {
+    State.update({ sender: accounts[0] });
+    console.log("set sender", accounts[0]);
+  }
+}
+
+//if (!state.sender)  return "Please login first";
+
+// FETCH SENDER BALANCE
+
+if (state.balance === undefined && state.sender) {
+  Ethers.provider()
+    .getBalance(state.sender)
+    .then((balance) => {
+      State.update({ balance: Big(balance).div(Big(10).pow(18)).toFixed(2) });
+    });
+}
+
+// FETCH SENDER STETH BALANCE
+
+if (state.stakedBalance === undefined && state.sender) {
+  getStakedBalance(state.sender).then((stakedBalance) => {
+    State.update({ stakedBalance });
+  });
+}
+
+// FETCH TX COST
+
+if (state.txCost === undefined) {
+  const gasEstimate = ethers.BigNumber.from(1875000);
+  const gasPrice = ethers.BigNumber.from(1500000000);
+
+  const gasCostInWei = gasEstimate.mul(gasPrice);
+  const gasCostInEth = ethers.utils.formatEther(gasCostInWei);
+
+  let responseGql = fetch(
+    "https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v2",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: `{
+          bundle(id: "1" ) {
+            ethPrice
+          }
+        }`,
+      }),
+    }
+  );
+
+  if (!responseGql) return "";
+
+  const ethPriceInUsd = responseGql.body.data.bundle.ethPrice;
+
+  const txCost = Number(gasCostInEth) * Number(ethPriceInUsd);
+
+  State.update({ txCost: `$${txCost.toFixed(2)}` });
+}
+
+// OUTPUT UI
+
+const getSender = () => {
+  return !state.sender
+    ? ""
+    : state.sender.substring(0, 6) +
+        "..." +
+        state.sender.substring(state.sender.length - 4, state.sender.length);
+};
+
+return (
+  <>
+    <input
+      disabled={!state.sender}
+      value={state.strEther}
+      onChange={(e) => State.update({ strEther: e.target.value })}
+      placeholder="Amount"
+    />
+
+    {!!state.sender ? (
+      <button onClick={() => submitEthers(state.strEther, state.sender)}>
+        Submit
+      </button>
+    ) : (
+      <Web3Connect
+        className="LidoStakeFormSubmitContainer"
+        connectLabel="Connect with Web3"
+      />
+    )}
+
+    <div class="container border border-info p-3 text-center min-vw-100">
+      <h1>Hello</h1>
+      <p>Greeting: {greeting} </p>
+      <p>Name: {props.name} </p>
+      <p>Current accountId: {context.accountId}</p>
+      <p>Current network: {context.networkId}</p>
+      <button
+        onClick={() => {
+          console.log("hello world", ethers);
+          Ethers.send("eth_requestAccounts", [])[0];
+        }}
+      >
+        click me
+      </button>
+    </div>
+
+    <div className="container row">
+      <div>
+        Image upload: <br />
+        <IpfsImageUpload image={state.img} />
+      </div>
+      <div>
+        Raw State:
+        <pre>{JSON.stringify(state)}</pre>
+      </div>
+      <div className="mt-2">
+        {state.img.cid && (
+          <img
+            src={`https://ipfs.near.social/ipfs/${state.img.cid}`}
+            alt="uploaded"
+          />
+        )}
+      </div>
+    </div>
+
+    <div>
+      <div>
+        <button
+          onClick={() => {
+            clipboard.writeText("HelloWorld!");
+          }}
+        >
+          Copy "HelloWorld!" to clipboard
+        </button>
+      </div>
+      <textarea className="form-control mt-2" placeholder="Test pasting here" />
+    </div>
+  </>
+);
