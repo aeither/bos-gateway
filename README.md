@@ -33,3 +33,7 @@ yarn run dev
 ## Techstack
 
 - nextjs, typescript, bootstrap, vercel, ethersjs
+
+## Screenshots
+
+![BOS_Component](https://github.com/aeither/friendtech-on-bos/assets/36173828/e292c498-314f-4ff0-8cc2-951f00670752)
