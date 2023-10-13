@@ -20,11 +20,8 @@ function formatHex(value, tokenDecimals) {
 }
 
 State.init({
-  img: null,
   strEther: 0,
   gasPrice: 0,
-  //   balance: 0.0,
-  // sender: "",
 });
 
 // Force user to connect to Base to show UI
@@ -41,9 +38,7 @@ if (
       }
     });
 }
-// if (state.chainId !== undefined && state.chainId !== 1) {
-//   return <p>Switch to Base Mainnet</p>;
-// }
+
 if (state.chainId !== undefined && state.chainId !== 8453) {
   return <p>Switch to Base Mainnet</p>;
 }
@@ -68,57 +63,6 @@ function getGasPrice() {
   return Ethers.provider().getGasPrice();
 }
 
-const getBuyPrice = (receiver) => {
-  const encodedData = iface.encodeFunctionData("getBuyPrice", [receiver, 1]);
-
-  return Ethers.provider()
-    .call({
-      to: contractAddress,
-      data: encodedData,
-    })
-    .then((rawBalance) => {
-      const receiverBalanceHex = iface.decodeFunctionResult(
-        "getBuyPrice",
-        rawBalance
-      );
-
-      return Big(receiverBalanceHex.toString())
-        .div(Big(10).pow(tokenDecimals))
-        .toFixed(2)
-        .replace(/\d(?=(\d{3})+\.)/g, "$&,");
-    });
-};
-
-function batchBalanceOf(chainId, userAddress, tokenAddresses, abi) {
-  const balanceProvider = new ethers.Contract(
-    config.balanceProviderAddress,
-    abi.body,
-    Ethers.provider().getSigner()
-  );
-
-  return balanceProvider.batchBalanceOf([userAddress], tokenAddresses);
-}
-
-const submitEthers = (strEther, _referral) => {
-  if (!strEther) {
-    return console.log("Amount is missing");
-  }
-
-  const erc20 = new ethers.Contract(
-    contractAddress,
-    contractAbi.body,
-    Ethers.provider().getSigner()
-  );
-  console.log("erc20", erc20);
-
-  let amount = ethers.utils.parseUnits(strEther, tokenDecimals).toHexString();
-  console.log("amount", amount);
-
-  erc20.submit(contractAddress, { value: amount }).then((transactionHash) => {
-    console.log("transactionHash is " + transactionHash);
-  });
-};
-
 // DETECT SENDER
 
 if (state.sender === undefined) {
@@ -129,8 +73,6 @@ if (state.sender === undefined) {
   }
 }
 
-//if (!state.sender)  return "Please login first";
-
 // FETCH SENDER BALANCE
 
 if (state.balance === undefined && state.sender) {
@@ -139,15 +81,6 @@ if (state.balance === undefined && state.sender) {
     .then((balance) => {
       State.update({ balance: Big(balance).div(Big(10).pow(18)).toFixed(2) });
     });
-}
-
-// FETCH SENDER STETH BALANCE
-
-if (state.stakedBalance === undefined && state.sender) {
-  getBuyPrice(state.sender).then((stakedBalance) => {
-    console.log("stakedBalance", stakedBalance);
-    State.update({ stakedBalance });
-  });
 }
 
 // OUTPUT UI
@@ -341,24 +274,12 @@ return (
 
                     // Buy Shares
                     friendTechContract
-                      .buyShares(
-                        "0x5052936d3c98d2d045da4995d37b0dae80c6f07f",
-                        1,
-                        {
-                          value: ethers.utils.parseEther("0.0"),
-                        }
-                      )
+                      .buyShares(state.targetAddress, 1, {
+                        value: ethers.utils.parseEther(state.buyPriceAfterFee),
+                      })
                       .then((data) => {
                         console.log(data);
                       });
-
-                    // friendTechContract
-                    //   .buyShares("targetAddress", 1, {
-                    //     value: ethers.utils.parseEther("0"),
-                    //   })
-                    //   .then((data) => {
-                    //     console.log(data);
-                    //   });
                   }}
                 >
                   Buy
@@ -367,7 +288,25 @@ return (
             </div>
             <div class="col">
               <div class="d-grid gap-2 d-md-block">
-                <button class="btn btn-danger" onClick={() => {}}>
+                <button
+                  class="btn btn-danger"
+                  onClick={() => {
+                    const friendTechContract = new ethers.Contract(
+                      contractAddress,
+                      contractAbi.body,
+                      Ethers.provider().getSigner()
+                    );
+
+                    // Sell Shares
+                    friendTechContract
+                      .sellShares(state.targetAddress, 1, {
+                        value: ethers.utils.parseEther(state.sellPriceAfterFee),
+                      })
+                      .then((data) => {
+                        console.log(data);
+                      });
+                  }}
+                >
                   Sell
                 </button>
               </div>
@@ -376,137 +315,5 @@ return (
         </div>
       </>
     )}
-
-    <>
-      <button onClick={() => submitEthers(state.strEther, state.sender)}>
-        Submit
-      </button>
-      <button
-        onClick={() => {
-          const friendTechContract = new ethers.Contract(
-            contractAddress,
-            contractAbi.body,
-            Ethers.provider().getSigner()
-          );
-
-          // Shares Balance
-          friendTechContract
-            .sharesBalance(
-              "0x9ea166c321fd4123789d372e51eb4da80d0e6eb4",
-              "0xbc1d9bcd289f5e2fd43cc32ed8e39ddd9feaa912"
-            )
-            .then((data) => {
-              console.log(formatHex(data, 0));
-            });
-
-          // Sell Shares
-          // friendTechContract
-          //   .sellShares("0x5052936d3c98d2d045da4995d37b0dae80c6f07f", 1, {
-          //     value: ethers.utils.parseEther("0.0"),
-          //   })
-          //   .then((data) => {
-          //     console.log(data);
-          //   });
-
-          // Buy Shares
-          friendTechContract
-            .buyShares("0x5052936d3c98d2d045da4995d37b0dae80c6f07f", 1, {
-              value: ethers.utils.parseEther("0.0"),
-            })
-            .then((data) => {
-              console.log(data);
-            });
-
-          // friendTechContract
-          //   .buyShares("0x123", 1, {
-          //     value: ethers.utils.parseEther("0.01"),
-          //   })
-          //   .then((data) => {
-          //     console.log(data);
-          //   });
-
-          // friendTechContract.batchBalanceOf([userAddress], tokenAddresses);
-        }}
-      >
-        Function 2
-      </button>
-      <button
-        onClick={() => {
-          console.log(state.value);
-          State.update({ value: "18d18" });
-        }}
-      >
-        test state
-      </button>
-      <button
-        onClick={() => {
-          const gasPrice = getGasPrice().then((gasPrice) => {
-            const gasLimit = "210000";
-            const gp = Big(gasPrice.toString())
-              .mul(gasLimit)
-              .div(Big(10).pow(decimals))
-              .toFixed(6)
-              .toString();
-            State.update({ gasPrice: gp });
-
-            console.log("gasPrice", gp);
-
-            return Big(gasPrice.toString())
-              .mul(gasLimit)
-              .div(Big(10).pow(decimals))
-              .toFixed(2);
-          });
-        }}
-      >
-        getGasPrice
-      </button>
-      <p>{state.gasPrice}</p>
-    </>
-
-    <div class="container border border-info p-3 text-center min-vw-100">
-      <h1>Hello</h1>
-      <p>Greeting: {greeting} </p>
-      <p>Name: {props.name} </p>
-      <p>Current accountId: {context.accountId}</p>
-      <p>Current network: {context.networkId}</p>
-      <button
-        onClick={() => {
-          console.log("hello world", ethers);
-          Ethers.send("eth_requestAccounts", [])[0];
-        }}
-      >
-        click me
-      </button>
-    </div>
-    <div className="container row">
-      <div>
-        Image upload: <br />
-        <IpfsImageUpload image={state.img} />
-      </div>
-      <div>
-        Raw State:
-        <pre>{JSON.stringify(state)}</pre>
-      </div>
-      <div className="mt-2">
-        {state.img.cid && (
-          <img
-            src={`https://ipfs.near.social/ipfs/${state.img.cid}`}
-            alt="uploaded"
-          />
-        )}
-      </div>
-    </div>
-    <div>
-      <div>
-        <button
-          onClick={() => {
-            clipboard.writeText("HelloWorld!");
-          }}
-        >
-          Copy "HelloWorld!" to clipboard
-        </button>
-      </div>
-      <textarea className="form-control mt-2" placeholder="Test pasting here" />
-    </div>
   </>
 );
