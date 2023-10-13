@@ -1,7 +1,30 @@
 let greeting = `Have a great day ${props.name}.`;
+const decimals = 18;
+
+function formatHex0(value, tokenDecimals) {
+  const formattedValue = Big(value.toString())
+    .div(Big(10).pow(tokenDecimals))
+    .toFixed(0)
+    .replace(/\d(?=(\d{3})+\.)/g, "$&,");
+
+  return formattedValue;
+}
+
+function formatHex(value, tokenDecimals) {
+  const formattedValue = Big(value.toString())
+    .div(Big(10).pow(tokenDecimals))
+    .toFixed(6)
+    .replace(/\d(?=(\d{3})+\.)/g, "$&,");
+
+  return formattedValue;
+}
+
 State.init({
   img: null,
   strEther: 0,
+  gasPrice: 0,
+  //   balance: 0.0,
+  // sender: "",
 });
 
 // Force user to connect to Base to show UI
@@ -18,40 +41,44 @@ if (
       }
     });
 }
-if (state.chainId !== undefined && state.chainId !== 1) {
-  return <p>Switch to Base Mainnet</p>;
-}
-// if (state.chainId !== undefined && state.chainId !== 8453) {
+// if (state.chainId !== undefined && state.chainId !== 1) {
 //   return <p>Switch to Base Mainnet</p>;
 // }
+if (state.chainId !== undefined && state.chainId !== 8453) {
+  return <p>Switch to Base Mainnet</p>;
+}
 
-// FETCH LIDO ABI
+// FETCH ABI
 
-const lidoContract = "0xae7ab96520de3a18e5e111b5eaab095312d7fe84";
+const contractAddress = "0xCF205808Ed36593aa40a44F10c7f7C2F67d4A4d4";
 const tokenDecimals = 18;
 
-const lidoAbi = fetch(
-  "https://raw.githubusercontent.com/lidofinance/lido-subgraph/master/abis/Lido.json"
+const contractAbi = fetch(
+  "https://raw.githubusercontent.com/aeither/bos-gateway/main/abi/FriendtechSharesV1.json"
 );
-if (!lidoAbi.ok) {
+if (!contractAbi.ok) {
   return "Loading";
 }
 
-const iface = new ethers.utils.Interface(lidoAbi.body);
+const iface = new ethers.utils.Interface(contractAbi.body);
 
 // HELPER FUNCTIONS
 
-const getStakedBalance = (receiver) => {
-  const encodedData = iface.encodeFunctionData("balanceOf", [receiver]);
+function getGasPrice() {
+  return Ethers.provider().getGasPrice();
+}
+
+const getBuyPrice = (receiver) => {
+  const encodedData = iface.encodeFunctionData("getBuyPrice", [receiver, 1]);
 
   return Ethers.provider()
     .call({
-      to: lidoContract,
+      to: contractAddress,
       data: encodedData,
     })
     .then((rawBalance) => {
       const receiverBalanceHex = iface.decodeFunctionResult(
-        "balanceOf",
+        "getBuyPrice",
         rawBalance
       );
 
@@ -62,14 +89,24 @@ const getStakedBalance = (receiver) => {
     });
 };
 
+function batchBalanceOf(chainId, userAddress, tokenAddresses, abi) {
+  const balanceProvider = new ethers.Contract(
+    config.balanceProviderAddress,
+    abi.body,
+    Ethers.provider().getSigner()
+  );
+
+  return balanceProvider.batchBalanceOf([userAddress], tokenAddresses);
+}
+
 const submitEthers = (strEther, _referral) => {
   if (!strEther) {
     return console.log("Amount is missing");
   }
 
   const erc20 = new ethers.Contract(
-    lidoContract,
-    lidoAbi.body,
+    contractAddress,
+    contractAbi.body,
     Ethers.provider().getSigner()
   );
   console.log("erc20", erc20);
@@ -77,7 +114,7 @@ const submitEthers = (strEther, _referral) => {
   let amount = ethers.utils.parseUnits(strEther, tokenDecimals).toHexString();
   console.log("amount", amount);
 
-  erc20.submit(lidoContract, { value: amount }).then((transactionHash) => {
+  erc20.submit(contractAddress, { value: amount }).then((transactionHash) => {
     console.log("transactionHash is " + transactionHash);
   });
 };
@@ -107,42 +144,10 @@ if (state.balance === undefined && state.sender) {
 // FETCH SENDER STETH BALANCE
 
 if (state.stakedBalance === undefined && state.sender) {
-  getStakedBalance(state.sender).then((stakedBalance) => {
+  getBuyPrice(state.sender).then((stakedBalance) => {
+    console.log("stakedBalance", stakedBalance);
     State.update({ stakedBalance });
   });
-}
-
-// FETCH TX COST
-
-if (state.txCost === undefined) {
-  const gasEstimate = ethers.BigNumber.from(1875000);
-  const gasPrice = ethers.BigNumber.from(1500000000);
-
-  const gasCostInWei = gasEstimate.mul(gasPrice);
-  const gasCostInEth = ethers.utils.formatEther(gasCostInWei);
-
-  let responseGql = fetch(
-    "https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v2",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        query: `{
-          bundle(id: "1" ) {
-            ethPrice
-          }
-        }`,
-      }),
-    }
-  );
-
-  if (!responseGql) return "";
-
-  const ethPriceInUsd = responseGql.body.data.bundle.ethPrice;
-
-  const txCost = Number(gasCostInEth) * Number(ethPriceInUsd);
-
-  State.update({ txCost: `$${txCost.toFixed(2)}` });
 }
 
 // OUTPUT UI
@@ -157,23 +162,306 @@ const getSender = () => {
 
 return (
   <>
-    <input
-      disabled={!state.sender}
-      value={state.strEther}
-      onChange={(e) => State.update({ strEther: e.target.value })}
-      placeholder="Amount"
-    />
+    <div class="sticky-top bg-white text-dark border-bottom">
+      <div class="container px-0 py-2">
+        <div class="row justify-content-between">
+          <div class="col">
+            <h2>
+              <span class="text-info">friend.</span>tech
+            </h2>
+          </div>
+          <div class="col">
+            <div class="row justify-content-between">
+              <Web3Connect connectLabel="Connect" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
 
-    {!!state.sender ? (
+    {!!state.sender && (
+      <div class="container centered-text">
+        <div class="row">
+          <div class="col">
+            <div class="border rounded py-2 my-2 text-center">
+              ⬨ {state.balance} ETH - {getSender()}
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+
+    <div class="container centered-text">
+      <h4>Highlights</h4>
+      <div class="row">
+        <div class="col m-2">Herro - 0x5479...0311</div>
+        <div class="col">
+          <button
+            onClick={() => {
+              clipboard.writeText("0x5479f127a4d594208549c86f4b4903a1175a0311");
+            }}
+          >
+            Copy
+          </button>
+        </div>
+      </div>
+      <div class="row">
+        <div class="col m-2">Cobie - 0x4e5f...676e1</div>
+        <div class="col">
+          <button
+            onClick={() => {
+              clipboard.writeText("0x4e5f7e4a774bd30b9bdca7eb84ce3681a71676e1");
+            }}
+          >
+            Copy
+          </button>
+        </div>
+      </div>
+      <div class="row">
+        <div class="col m-2">Machi BB - 0xf0ea...df3d</div>
+        <div class="col">
+          <button
+            onClick={() => {
+              clipboard.writeText("0xf0ea13334d6f74044ec7332de1c6ec194179df3d");
+            }}
+          >
+            Copy
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="container centered-text mt-4">
+      <h4>Explore</h4>
+      <div class="row">
+        <div class="col py-2">
+          <input
+            disabled={!state.sender}
+            value={state.targetAddress}
+            onChange={(e) => State.update({ targetAddress: e.target.value })}
+            placeholder="Address"
+          />
+          <button
+            onClick={() => {
+              const friendTechContract = new ethers.Contract(
+                contractAddress,
+                contractAbi.body,
+                Ethers.provider().getSigner()
+              );
+
+              // Total supply
+              friendTechContract
+                .sharesSupply(state.targetAddress)
+                .then((data) => {
+                  console.log(formatHex(data, 0));
+                  State.update({ sharesSupply: formatHex0(data, 0) });
+                });
+
+              // Get Sell Price
+              friendTechContract
+                .getSellPrice(state.targetAddress, 1)
+                .then((data) => {
+                  console.log(formatHex(data, decimals));
+                  State.update({ sellPrice: formatHex(data, decimals) });
+                });
+
+              // Get Sell Price After Fee
+              friendTechContract
+                .getSellPriceAfterFee(state.targetAddress, 1)
+                .then((data) => {
+                  console.log(formatHex(data, decimals));
+                  State.update({
+                    sellPriceAfterFee: formatHex(data, decimals),
+                  });
+                });
+
+              // Get Buy Price
+              friendTechContract
+                .getBuyPrice(state.targetAddress, 1)
+                .then((data) => {
+                  console.log(formatHex(data, decimals));
+                  State.update({ buyPrice: formatHex(data, decimals) });
+                });
+
+              // Get Buy Price After Fee
+              friendTechContract
+                .getBuyPriceAfterFee(state.targetAddress, 1)
+                .then((data) => {
+                  console.log(formatHex(data, decimals));
+                  State.update({ buyPriceAfterFee: formatHex(data, decimals) });
+                });
+
+              // Get target user balance
+              Ethers.provider()
+                .getBalance(state.targetAddress)
+                .then((balance) => {
+                  console.log("balance", formatHex(balance, decimals));
+                  State.update({ targetBalance: formatHex(balance, decimals) });
+                });
+            }}
+          >
+            🔍 Search
+          </button>
+        </div>
+      </div>
+    </div>
+
+    {state.targetAddress && state.sharesSupply && (
+      <>
+        <div class="container centered-text">
+          <div class="row ">
+            <div class="col ">
+              <div class="border rounded py-2 my-2">
+                <div class="px-2">Supply: {state.sharesSupply}</div>
+                <div class="px-2">Buy Price: {state.buyPrice}</div>
+                <div class="px-2">
+                  Buy Price (including fees): {state.buyPriceAfterFee}{" "}
+                </div>
+                <div class="px-2">Sell Price: {state.sellPrice}</div>
+                <div class="px-2">
+                  Sell Price (including fees): {state.sellPriceAfterFee}
+                </div>
+                <div class="px-2">Address Balance: {state.targetBalance}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="container centered-text">
+          <div class="row">
+            <div class="col">
+              <div class="d-grid gap-2 d-md-block">
+                <button
+                  onClick={() => {
+                    const friendTechContract = new ethers.Contract(
+                      contractAddress,
+                      contractAbi.body,
+                      Ethers.provider().getSigner()
+                    );
+
+                    // Buy Shares
+                    friendTechContract
+                      .buyShares(
+                        "0x5052936d3c98d2d045da4995d37b0dae80c6f07f",
+                        1,
+                        {
+                          value: ethers.utils.parseEther("0.0"),
+                        }
+                      )
+                      .then((data) => {
+                        console.log(data);
+                      });
+
+                    // friendTechContract
+                    //   .buyShares("targetAddress", 1, {
+                    //     value: ethers.utils.parseEther("0"),
+                    //   })
+                    //   .then((data) => {
+                    //     console.log(data);
+                    //   });
+                  }}
+                >
+                  Buy
+                </button>
+              </div>
+            </div>
+            <div class="col">
+              <div class="d-grid gap-2 d-md-block">
+                <button class="btn btn-danger" onClick={() => {}}>
+                  Sell
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </>
+    )}
+
+    <>
       <button onClick={() => submitEthers(state.strEther, state.sender)}>
         Submit
       </button>
-    ) : (
-      <Web3Connect
-        className="LidoStakeFormSubmitContainer"
-        connectLabel="Connect with Web3"
-      />
-    )}
+      <button
+        onClick={() => {
+          const friendTechContract = new ethers.Contract(
+            contractAddress,
+            contractAbi.body,
+            Ethers.provider().getSigner()
+          );
+
+          // Shares Balance
+          friendTechContract
+            .sharesBalance(
+              "0x9ea166c321fd4123789d372e51eb4da80d0e6eb4",
+              "0xbc1d9bcd289f5e2fd43cc32ed8e39ddd9feaa912"
+            )
+            .then((data) => {
+              console.log(formatHex(data, 0));
+            });
+
+          // Sell Shares
+          // friendTechContract
+          //   .sellShares("0x5052936d3c98d2d045da4995d37b0dae80c6f07f", 1, {
+          //     value: ethers.utils.parseEther("0.0"),
+          //   })
+          //   .then((data) => {
+          //     console.log(data);
+          //   });
+
+          // Buy Shares
+          friendTechContract
+            .buyShares("0x5052936d3c98d2d045da4995d37b0dae80c6f07f", 1, {
+              value: ethers.utils.parseEther("0.0"),
+            })
+            .then((data) => {
+              console.log(data);
+            });
+
+          // friendTechContract
+          //   .buyShares("0x123", 1, {
+          //     value: ethers.utils.parseEther("0.01"),
+          //   })
+          //   .then((data) => {
+          //     console.log(data);
+          //   });
+
+          // friendTechContract.batchBalanceOf([userAddress], tokenAddresses);
+        }}
+      >
+        Function 2
+      </button>
+      <button
+        onClick={() => {
+          console.log(state.value);
+          State.update({ value: "18d18" });
+        }}
+      >
+        test state
+      </button>
+      <button
+        onClick={() => {
+          const gasPrice = getGasPrice().then((gasPrice) => {
+            const gasLimit = "210000";
+            const gp = Big(gasPrice.toString())
+              .mul(gasLimit)
+              .div(Big(10).pow(decimals))
+              .toFixed(6)
+              .toString();
+            State.update({ gasPrice: gp });
+
+            console.log("gasPrice", gp);
+
+            return Big(gasPrice.toString())
+              .mul(gasLimit)
+              .div(Big(10).pow(decimals))
+              .toFixed(2);
+          });
+        }}
+      >
+        getGasPrice
+      </button>
+      <p>{state.gasPrice}</p>
+    </>
 
     <div class="container border border-info p-3 text-center min-vw-100">
       <h1>Hello</h1>
@@ -190,7 +478,6 @@ return (
         click me
       </button>
     </div>
-
     <div className="container row">
       <div>
         Image upload: <br />
@@ -209,7 +496,6 @@ return (
         )}
       </div>
     </div>
-
     <div>
       <div>
         <button
